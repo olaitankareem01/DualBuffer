@@ -1,0 +1,37 @@
+﻿@using DualBuffer.Models.Enums;
+@model MakeCallViewModel
+
+<h2>Calculate</h2>
+
+@using (Html.BeginForm("MakeCall", "Network", FormMethod.Post))
+{
+        <div>
+            <label for="Di">Di:</label>
+            <input type="text" name="Di" value="" />
+        </div>
+        <div>
+            <label for="SNR">SNR:</label>
+            <input type="text" name="SNR" value="" />
+        </div>
+        <div>
+            <label for="WRB">WRB:</label>
+            <input type="text" name="WRB" value="" />
+        </div>
+        <div>
+            <label for="N">N:</label>
+            <input type="text" name="N" value="" />
+        </div>
+        <div>
+            <label for="Nco">Nco:</label>
+            <input type="text" name="Nco" value="" />
+        </div>
+        <div>
+            <label for="YourEnumProperty">Call Type:</label>
+            @Html.DropDownListFor(model => model.callType, Enum.GetValues(typeof(CallType)).Cast<CallType>().Select(e => new SelectListItem { Text = e.ToString(), Value = e.ToString() }), "Select an option")
+        </div>
+      
+        <button type="submit">Make Call</button>
+}
+
+<h4>Result:</h4>
+<p>@ViewBag.Result</p>
