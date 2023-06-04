@@ -2,7 +2,9 @@
 {
     public enum CallStatus
     {
-        Accepted=1,
-        Droppeds
+        Active,
+        Expired,
+        Completed,
+        Failed
     }
 }

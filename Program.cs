@@ -1,4 +1,6 @@
 using DualBuffer;
+using DualBuffer.Repositories;
+using DualBuffer.Services;
 using Microsoft.EntityFrameworkCore;
 using MySql.Data.EntityFrameworkCore;
 
@@ -12,7 +14,8 @@ builder.Services.AddControllersWithViews();
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<NetworkDbContext>(option => option.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
-
+builder.Services.AddScoped<INetworkService, NetworkService>();
+builder.Services.AddScoped<INetworkRepository, NetworkRepository>();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

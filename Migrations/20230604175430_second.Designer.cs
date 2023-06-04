@@ -3,6 +3,7 @@ using System;
 using DualBuffer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,10 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DualBuffer.Migrations
 {
     [DbContext(typeof(NetworkDbContext))]
-    partial class NetworkDbContextModelSnapshot : ModelSnapshot
+    [Migration("20230604175430_second")]
+    partial class second
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -28,9 +30,6 @@ namespace DualBuffer.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<bool>("IsBlocked")
-                        .HasColumnType("tinyint(1)");
-
                     b.Property<int>("NumResourceBlocks")
                         .HasColumnType("int");
 
@@ -41,9 +40,6 @@ namespace DualBuffer.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<int>("Type")
-                        .HasColumnType("int");
-
-                    b.Property<int>("WaitingTime")
                         .HasColumnType("int");
 
                     b.Property<int>("allocatedChannels")

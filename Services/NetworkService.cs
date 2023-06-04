@@ -1,61 +1,58 @@
 ﻿using DualBuffer.Models.Enums;
+using DualBuffer.Repositories;
 using System;
 
 namespace DualBuffer.Services
 {
-    public class NetworkService
+    public class NetworkService: INetworkService
     {
-
-        /* Queue<Call> buffer1 = new Queue<Call>();
-         Queue<Call> buffer2 = new Queue<Call>();*/
-        List<Call> buffer1 = new List<Call>();
-        List<Call> buffer2 = new List<Call>();
-        int buffer1Size = 5; // set the size of buffer 1 to 5
-        int buffer2Size = 10;
-
-        // Algorithm 1: Accepting Requests into the Network
-        double deltaXi;
-        double Xc;
-        public  bool AcceptRequest(double Di, double SNR, double WRB, int N, int Nco)
+        private readonly INetworkRepository _networkRepository;
+        public NetworkService(INetworkRepository networkRepository) 
         {
-            double BA = Di * Math.Log(1 + SNR);
-            double S = 1;
-            double Bi = 1;
-            deltaXi = S * Bi * WRB / 2;
-            double totalDeltaXi = deltaXi;
-            Xc = 0;
-
-            for (int i = 2; i <= Nco; i++)
-            {
-                double ki = 1;
-                double delta = ki * deltaXi;
-                totalDeltaXi += delta;
-            }
-
-            Xc = totalDeltaXi <= N - Nco ? totalDeltaXi : 0;
-
-            if (Xc + deltaXi <= N - Nco)
-            {
-                return true; // Accept request
-            }
-            else
-            {
-                return false; // Reject request
-            }
+            _networkRepository = networkRepository;
+            StartCallRemovalTimer();
         }
 
-        // Algorithm 2: Accepting Requests into the Buffer
-        public  void AcceptRequestIntoBuffer( Call incomingCall) 
+        private static readonly double removalIntervalMinutes = 60; 
+        private Timer removalTimer;
+
+        private const int Buffer1Size = 5;
+        private const int Buffer2Size = 10;
+        private int RTBlockingProb;
+        private int NRTBlockingProb;
+
+        private static Queue<Call> buffer1 = new Queue<Call>();
+        private static Queue<Call> buffer2 = new Queue<Call>();
+        private int availableChannels = 10;
+
+        public bool AcceptRequest(double callDuration, double signalToNoiseRatio, double requiredBandwidth, int totalChannels, int allocatedChannels)
         {
-               double RTBlockingProb;
-              double NRTBlockingProb;
-             RTBlockingProb = 0;
-            NRTBlockingProb = 0;
+            double bandwidthAllocation = callDuration * Math.Log(1 + signalToNoiseRatio);
+            double totalBandwidthAllocation = bandwidthAllocation;
+            double availableBandwidth = 0;
 
-
-            if (buffer1.Count < buffer1Size)
+            for (int i = 2; i <= allocatedChannels; i++)
             {
-                buffer1.Add(incomingCall);
+                double channelAllocation = 1;
+                double delta = channelAllocation * bandwidthAllocation;
+                totalBandwidthAllocation += delta;
+            }
+
+            availableBandwidth = totalBandwidthAllocation <= totalChannels - allocatedChannels ? totalBandwidthAllocation : 0;
+
+            return availableBandwidth + bandwidthAllocation <= totalChannels - allocatedChannels;
+        }
+
+        public bool AcceptRequestIntoBuffer(Call incomingCall, TimeSpan waitingTime)
+        {
+
+            incomingCall.TimeArrived = DateTime.Now;
+            incomingCall.ExpiresAt  = DateTime.Now.Add(waitingTime);
+
+            if (buffer1.Count < Buffer1Size)
+            {
+                buffer1.Enqueue(incomingCall);
+                return true;
             }
             else
             {
@@ -63,125 +60,47 @@ namespace DualBuffer.Services
 
                 if (isRT)
                 {
-                    // Preempt the oldest NRT call and admit the incoming RT call into buffer 1
-                    var oldestNRTCall = buffer1.Where(c => c.Type == CallType.NRT).OrderBy(c => c.TimeArrived).FirstOrDefault();
+                    var oldestNRTCall = buffer1.Where(c => c.Type == CallType.NRT)
+                                        .OrderBy(c => c.TimeArrived)
+                                        .FirstOrDefault();
 
                     if (oldestNRTCall != null)
                     {
-                        buffer1.Remove(oldestNRTCall);
-                        buffer1.Add(incomingCall);
+                        buffer1 = new Queue<Call>(buffer1.Where(c => c != oldestNRTCall));
+                        buffer1.Enqueue(incomingCall);
+                        return true;
                     }
-                    else if (buffer2.Count < buffer2Size)
+                    else if (buffer2.Count < Buffer2Size)
                     {
-                        // If there are no NRT calls in buffer 1, admit the incoming RT call into buffer 2
-                        buffer2.Add(incomingCall);
+                     
+                        buffer2.Enqueue(incomingCall);
+                        return true;
                     }
                     else
                     {
-                        // Reject the incoming RT call since both buffers are full
+                        incomingCall.IsBlocked = true;
                         RTBlockingProb = 1;
+                        return false; // Reject the incoming RT call since both buffers are full
                     }
                 }
                 else
                 {
-                    if (buffer2.Count < buffer2Size)
+                    if (buffer2.Count < Buffer2Size)
                     {
-                        // Admit the incoming NRT call into buffer 2
-                        buffer2.Add(incomingCall);
+                        buffer2.Enqueue(incomingCall);
                     }
                     else
                     {
                         // Reject the incoming NRT call since both buffers are full
+                        incomingCall.IsBlocked = true;
                         NRTBlockingProb = 1;
+                        return false;// Reject the incoming NRT call since buffer 2 is full
                     }
                 }
             }
+            return false;
         }
 
-        /* void AddCallToQueue(Call call)
-         {
-             if (buffer1.Count < buffer1Size)
-             {
-                 // buffer 1 is not full, insert call into the queue
-                 buffer1.Enqueue(call);
-             }
-             else
-             {
-                 // buffer 1 is full
-                 if (call.Type == CallType.RT)
-                 {
-                     // incoming call is RT, preempt the oldest NRT call and admit the incoming RT call into the buffer
-                     if (buffer1.Contains(CallType.NRT))
-                     {
-                         buffer1.Dequeue(); // remove the oldest NRT call from buffer 1
-                         buffer1.Enqueue(callType); // add the incoming RT call to buffer 1
-                     }
-                 }
-                 else if (callType == "NRT")
-                 {
-                     // incoming call is NRT
-                     if (!buffer1.Contains("NRT"))
-                     {
-                         // no NRT call in the buffer, reject NRT call
-                         Console.WriteLine("Rejected NRT call.");
-                     }
-                     else if (buffer2.Count < buffer2Size)
-                     {
-                         // buffer 2 is not full, insert call into buffer 2
-                         buffer2.Enqueue(callType);
-                     }
-                     else
-                     {
-                         // buffer 2 is full, reject NRT call
-                         Console.WriteLine("Rejected NRT call.");
-                     }
-                 }
-             }
-         }*/
-        // Define the function to allocate resources to calls in the buffer
-        int availableChannels = 10; // Set the number of available channels
-
-        void AllocateResources(Queue<string> rtCalls, Queue<string> nrtCalls)
-        {
-            int rtCallsCount = rtCalls.Count;
-            int nrtCallsCount = nrtCalls.Count;
-
-            if (availableChannels > 0)
-            {
-                if (rtCallsCount > 0 && nrtCallsCount > 0)
-                {
-                    // Allocate channels to 2 RT calls and then 1 NRT call
-                    int rtChannels = Math.Min(rtCallsCount, 2); // Allocate channels to at most 2 RT calls
-                    int nrtChannels = Math.Min(1, availableChannels - rtChannels); // Allocate channels to at most 1 NRT call
-
-                    AllocateChannels(rtCalls, rtChannels, "RT");
-                    AllocateChannels(nrtCalls, nrtChannels, "NRT");
-                }
-                else if (rtCallsCount > 0)
-                {
-                    // Allocate channels to RT calls
-                    int rtChannels = Math.Min(rtCallsCount, availableChannels);
-                    AllocateChannels(rtCalls, rtChannels, "RT");
-                }
-                else if (nrtCallsCount > 0)
-                {
-                    // Allocate channels to NRT calls
-                    int nrtChannels = Math.Min(nrtCallsCount, availableChannels);
-                    AllocateChannels(nrtCalls, nrtChannels, "NRT");
-                }
-            }
-        }
-
-
-        void AllocateChannels(Queue<string> calls, int channels, string callType)
-        {
-            for (int i = 0; i < channels; i++)
-            {
-                string call = calls.Dequeue();
-                Console.WriteLine($"Allocating channel to {callType} call: {call}");
-                availableChannels--;
-            }
-        }
         public void AllocateResourcesToCalls(List<Call> rtCalls, List<Call> nrtCalls, int numChannels)
         {
             // Check if channels are available
@@ -191,26 +110,55 @@ namespace DualBuffer.Services
                 if (rtCalls.Count > 0 && nrtCalls.Count > 0)
                 {
                     // Allocate resources to 2 RT calls and 1 NRT call
-                    for (int i = 0; i < 2 && i < rtCalls.Count; i++)
+                    int rtCallsToAllocate = Math.Min(rtCalls.Count, 2);
+                    int nrtCallsToAllocate = 1;
+
+                    // Allocate resources to RT calls
+                    for (int i = 0; i < rtCallsToAllocate; i++)
                     {
-                        rtCalls[i].AllocateResources(numChannels);
-                        numChannels -= rtCalls[i].NumResourceBlocks;
+                        Call rtCall = rtCalls[i];
+                        if (rtCall.NumResourceBlocks <= numChannels)
+                        {
+                            rtCall.AllocateResources(numChannels);
+                            numChannels -= rtCall.NumResourceBlocks;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Insufficient channels to allocate resources for RT call: {rtCall.Id}");
+                        }
                     }
-                    if (numChannels > 0 && nrtCalls.Count > 0)
+
+                    // Allocate resources to NRT call
+                    if (numChannels > 0 && nrtCallsToAllocate <= nrtCalls.Count)
                     {
-                        nrtCalls[0].AllocateResources(numChannels);
+                        Call nrtCall = nrtCalls[0];
+                        if (nrtCall.NumResourceBlocks <= numChannels)
+                        {
+                            nrtCall.AllocateResources(numChannels);
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Insufficient channels to allocate resources for NRT call: {nrtCall.Id}");
+                        }
                     }
                 }
                 // Check if there are only RT calls in the buffer
                 else if (rtCalls.Count > 0 && nrtCalls.Count == 0)
                 {
                     // Allocate resources to RT calls
-                    foreach (Call call in rtCalls)
+                    foreach (Call rtCall in rtCalls)
                     {
                         if (numChannels > 0)
                         {
-                            call.AllocateResources(numChannels);
-                            numChannels -= call.NumResourceBlocks;
+                            if (rtCall.NumResourceBlocks <= numChannels)
+                            {
+                                rtCall.AllocateResources(numChannels);
+                                numChannels -= rtCall.NumResourceBlocks;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Insufficient channels to allocate resources for RT call: {rtCall.Id}");
+                            }
                         }
                         else
                         {
@@ -222,12 +170,19 @@ namespace DualBuffer.Services
                 else if (rtCalls.Count == 0 && nrtCalls.Count > 0)
                 {
                     // Allocate resources to NRT calls
-                    foreach (Call call in nrtCalls)
+                    foreach (Call nrtCall in nrtCalls)
                     {
                         if (numChannels > 0)
                         {
-                            call.AllocateResources(numChannels);
-                            numChannels -= call.NumResourceBlocks;
+                            if (nrtCall.NumResourceBlocks <= numChannels)
+                            {
+                                nrtCall.AllocateResources(numChannels);
+                                numChannels -= nrtCall.NumResourceBlocks;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Insufficient channels to allocate resources for NRT call: {nrtCall.Id}");
+                            }
                         }
                         else
                         {
@@ -236,8 +191,179 @@ namespace DualBuffer.Services
                     }
                 }
             }
+            else
+            {
+                Console.WriteLine("No available channels to allocate resources.");
+            }
         }
 
 
+        public List<Call> GetRTCalls()
+        {
+            return buffer1.Where(call => call.Type == CallType.RT).ToList();
+        }
+
+        public List<Call> GetNRTCalls()
+        {
+            return buffer1.Where(call => call.Type == CallType.NRT).ToList();
+        }
+
+        public  Call AddCall(Call call)
+        {
+           var callAdded =  _networkRepository.AddAsync(call);
+            return callAdded;
+        }
+
+
+        public void StartCallRemovalTimer()
+        {
+            TimeSpan interval = TimeSpan.FromMinutes(removalIntervalMinutes);
+            removalTimer = new Timer(RemoveExpiredCalls, null, interval, interval);
+        }
+
+        public void StopCallRemovalTimer()
+        {
+            removalTimer?.Dispose();
+            removalTimer = null;
+        }
+
+        public void RemoveExpiredCalls(object state)
+        {
+            DateTime currentTime = DateTime.Now;
+
+            // Remove expired calls from buffer 1
+            int buffer1Count = buffer1.Count;
+            for (int i = 0; i < buffer1Count; i++)
+            {
+                Call call = buffer1.Peek();
+                if (call.ExpiresAt <= currentTime)
+                {
+                    buffer1.Dequeue();
+                }
+                else
+                {
+                    buffer1.Enqueue(call); // Re-enqueue the non-expired call
+                }
+            }
+
+            // Remove expired calls from buffer 2
+            int buffer2Count = buffer2.Count;
+            for (int i = 0; i < buffer2Count; i++)
+            {
+                Call call = buffer2.Peek();
+                if (call.ExpiresAt <= currentTime)
+                {
+                    buffer2.Dequeue();
+                }
+                else
+                {
+                    buffer2.Enqueue(call); // Re-enqueue the non-expired call
+                }
+            }
+        }
+
+        public double CalculateRTBlockingProbability()
+        {
+            int totalRTCalls = buffer1.Count(c => c.Type == CallType.RT);
+            int blockedRTCalls = buffer1.Count(c => c.Type == CallType.RT && c.IsBlocked);
+
+            if (totalRTCalls > 0)
+            {
+                return (double)blockedRTCalls / totalRTCalls;
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+        // Calculate the NRT Blocking Probability
+        public double CalculateNRTBlockingProbability()
+        {
+            int totalNRTCalls = buffer2.Count(c => c.Type == CallType.NRT);
+            int blockedNRTCalls = buffer2.Count(c => c.Type == CallType.NRT && c.IsBlocked);
+
+            if (totalNRTCalls > 0)
+            {
+                return (double)blockedNRTCalls / totalNRTCalls;
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+    
+
+        public double CalculateFairnessIndex()
+        {
+            double rtCallsSum = buffer1.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
+            double nrtCallsSum = buffer2.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
+
+            double rtCallsSquaredSum = buffer1.Sum(c => c.Type == CallType.RT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
+            double nrtCallsSquaredSum = buffer2.Sum(c => c.Type == CallType.NRT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
+
+            double rtCallsCount = buffer1.Count(c => c.Type == CallType.RT);
+            double nrtCallsCount = buffer2.Count(c => c.Type == CallType.NRT);
+
+            double rtFairness = Math.Pow(rtCallsSum, 2) / (rtCallsCount * rtCallsSquaredSum);
+            double nrtFairness = Math.Pow(nrtCallsSum, 2) / (nrtCallsCount * nrtCallsSquaredSum);
+
+            return Math.Min(rtFairness, nrtFairness);
+        }
+
+        // Calculate throughput
+        public double CalculateThroughput()
+        {
+            double rtCallsSum = buffer1.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
+            double nrtCallsSum = buffer2.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
+
+            double totalCapacity = availableChannels * Buffer1Size;
+
+            return (rtCallsSum + nrtCallsSum) / totalCapacity;
+        }
+
+        // Calculate packet loss rate
+        public double CalculatePacketLossRate()
+        {
+            int blockedRTCalls = buffer1.Count(c => c.Type == CallType.RT && c.IsBlocked);
+            int blockedNRTCalls = buffer2.Count(c => c.Type == CallType.NRT && c.IsBlocked);
+
+            int totalCalls = buffer1.Count + buffer2.Count;
+
+            if (totalCalls > 0)
+            {
+                return (double)(blockedRTCalls + blockedNRTCalls) / totalCalls;
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+        // Calculate system utilization
+        public double CalculateSystemUtilization()
+        {
+            int occupiedChannels = buffer1.Sum(c => c.NumResourceBlocks) + buffer2.Sum(c => c.NumResourceBlocks);
+
+            return (double)occupiedChannels / availableChannels;
+        }
+
+        // Calculate average waiting time
+        public double CalculateAverageWaitingTime()
+        {
+            double totalWaitingTime = buffer1.Sum(c => c.WaitingTime) + buffer2.Sum(c => c.WaitingTime);
+            int totalCalls = buffer1.Count + buffer2.Count;
+
+            if (totalCalls > 0)
+            {
+                return totalWaitingTime / totalCalls;
+            }
+            else
+            {
+                return 0;
+            }
+        }
     }
+
 }
