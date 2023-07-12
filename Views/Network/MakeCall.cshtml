@@ -1,37 +1,36 @@
 ﻿@using DualBuffer.Models.Enums;
 @model MakeCallViewModel
 
-<h2>Calculate</h2>
+<h2>Make Call</h2>
 
-@using (Html.BeginForm("MakeCall", "Network", FormMethod.Post))
+@using (Html.BeginForm("MakeCall", "Network", FormMethod.Post, new { @class = "form" }))
 {
-        <div>
-            <label for="Di">Di:</label>
-            <input type="text" name="Di" value="" />
-        </div>
-        <div>
-            <label for="SNR">SNR:</label>
-            <input type="text" name="SNR" value="" />
-        </div>
-        <div>
-            <label for="WRB">WRB:</label>
-            <input type="text" name="WRB" value="" />
-        </div>
-        <div>
-            <label for="N">N:</label>
-            <input type="text" name="N" value="" />
-        </div>
-        <div>
-            <label for="Nco">Nco:</label>
-            <input type="text" name="Nco" value="" />
-        </div>
-        <div>
-            <label for="YourEnumProperty">Call Type:</label>
-            @Html.DropDownListFor(model => model.callType, Enum.GetValues(typeof(CallType)).Cast<CallType>().Select(e => new SelectListItem { Text = e.ToString(), Value = e.ToString() }), "Select an option")
-        </div>
-      
-        <button type="submit">Make Call</button>
+    <div class="form-group">
+        @Html.LabelFor(model => model.Di)
+        @Html.TextBoxFor(model => model.Di, new { @class = "form-control" })
+    </div>
+    <div class="form-group">
+        @Html.LabelFor(model => model.SNR)
+        @Html.TextBoxFor(model => model.SNR, new { @class = "form-control" })
+    </div>
+    <div class="form-group">
+        @Html.LabelFor(model => model.WRB)
+        @Html.TextBoxFor(model => model.WRB, new { @class = "form-control" })
+    </div>
+    <div class="form-group">
+        @Html.LabelFor(model => model.N)
+        @Html.TextBoxFor(model => model.N, new { @class = "form-control" })
+    </div>
+    <div class="form-group">
+        @Html.LabelFor(model => model.Nco)
+        @Html.TextBoxFor(model => model.Nco, new { @class = "form-control" })
+    </div>
+    <div class="form-group">
+        @Html.LabelFor(model => model.callType, "Call Type:")
+        @Html.DropDownListFor(model => model.callType, Enum.GetValues(typeof(CallType)).Cast<CallType>().Select(e => new SelectListItem { Text = e.ToString(), Value = e.ToString() }), "Select an option", new { @class = "form-control" })
+    </div>
+
+    <button type="submit" class="btn btn-primary">Make Call</button>
 }
 
-<h4>Result:</h4>
-<p>@ViewBag.Result</p>
+

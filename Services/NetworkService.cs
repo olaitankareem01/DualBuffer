@@ -16,14 +16,14 @@ namespace DualBuffer.Services
         private static readonly double removalIntervalMinutes = 60; 
         private Timer removalTimer;
 
-        private const int Buffer1Size = 5;
-        private const int Buffer2Size = 10;
+        private const int Buffer1Size = 1;
+        private const int Buffer2Size = 2;
         private int RTBlockingProb;
         private int NRTBlockingProb;
 
         private static Queue<Call> buffer1 = new Queue<Call>();
         private static Queue<Call> buffer2 = new Queue<Call>();
-        private int availableChannels = 10;
+        private int availableChannels = 5;
 
         public bool AcceptRequest(double callDuration, double signalToNoiseRatio, double requiredBandwidth, int totalChannels, int allocatedChannels)
         {
@@ -79,6 +79,7 @@ namespace DualBuffer.Services
                     else
                     {
                         incomingCall.IsBlocked = true;
+                        incomingCall.Status = CallStatus.Failed;
                         RTBlockingProb = 1;
                         return false; // Reject the incoming RT call since both buffers are full
                     }
@@ -93,6 +94,7 @@ namespace DualBuffer.Services
                     {
                         // Reject the incoming NRT call since both buffers are full
                         incomingCall.IsBlocked = true;
+                        incomingCall.Status = CallStatus.Failed;
                         NRTBlockingProb = 1;
                         return false;// Reject the incoming NRT call since buffer 2 is full
                     }
@@ -238,6 +240,12 @@ namespace DualBuffer.Services
                 Call call = buffer1.Peek();
                 if (call.ExpiresAt <= currentTime)
                 {
+                    var callFound = _networkRepository.GetAsync(call.Id);
+                    if(callFound != null)
+                    {
+                        callFound.Status = CallStatus.Expired;
+                        _networkRepository.UpdateAsync(callFound);
+                    }
                     buffer1.Dequeue();
                 }
                 else
@@ -264,8 +272,9 @@ namespace DualBuffer.Services
 
         public double CalculateRTBlockingProbability()
         {
-            int totalRTCalls = buffer1.Count(c => c.Type == CallType.RT);
-            int blockedRTCalls = buffer1.Count(c => c.Type == CallType.RT && c.IsBlocked);
+            var calls =  _networkRepository.GetAllAsync();
+            int totalRTCalls = calls.Count(c => c.Type == CallType.RT);
+            int blockedRTCalls = calls.Count(c => c.Type == CallType.RT && c.IsBlocked);
 
             if (totalRTCalls > 0)
             {
@@ -280,8 +289,9 @@ namespace DualBuffer.Services
         // Calculate the NRT Blocking Probability
         public double CalculateNRTBlockingProbability()
         {
-            int totalNRTCalls = buffer2.Count(c => c.Type == CallType.NRT);
-            int blockedNRTCalls = buffer2.Count(c => c.Type == CallType.NRT && c.IsBlocked);
+            var calls = _networkRepository.GetAllAsync();
+            int totalNRTCalls =  calls.Count(c => c.Type == CallType.NRT);
+            int blockedNRTCalls = calls.Count(c => c.Type == CallType.NRT && c.IsBlocked);
 
             if (totalNRTCalls > 0)
             {
@@ -297,14 +307,16 @@ namespace DualBuffer.Services
 
         public double CalculateFairnessIndex()
         {
-            double rtCallsSum = buffer1.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
-            double nrtCallsSum = buffer2.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
 
-            double rtCallsSquaredSum = buffer1.Sum(c => c.Type == CallType.RT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
-            double nrtCallsSquaredSum = buffer2.Sum(c => c.Type == CallType.NRT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
+            var calls = _networkRepository.GetAllAsync();
+            double rtCallsSum = calls.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
+            double nrtCallsSum = calls.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
 
-            double rtCallsCount = buffer1.Count(c => c.Type == CallType.RT);
-            double nrtCallsCount = buffer2.Count(c => c.Type == CallType.NRT);
+            double rtCallsSquaredSum = calls.Sum(c => c.Type == CallType.RT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
+            double nrtCallsSquaredSum = calls.Sum(c => c.Type == CallType.NRT ? Math.Pow(c.NumResourceBlocks, 2) : 0);
+
+            double rtCallsCount = calls.Count(c => c.Type == CallType.RT);
+            double nrtCallsCount = calls.Count(c => c.Type == CallType.NRT);
 
             double rtFairness = Math.Pow(rtCallsSum, 2) / (rtCallsCount * rtCallsSquaredSum);
             double nrtFairness = Math.Pow(nrtCallsSum, 2) / (nrtCallsCount * nrtCallsSquaredSum);
@@ -315,8 +327,9 @@ namespace DualBuffer.Services
         // Calculate throughput
         public double CalculateThroughput()
         {
-            double rtCallsSum = buffer1.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
-            double nrtCallsSum = buffer2.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
+            var calls = _networkRepository.GetAllAsync();
+            double rtCallsSum = calls.Sum(c => c.Type == CallType.RT ? c.NumResourceBlocks : 0);
+            double nrtCallsSum = calls.Sum(c => c.Type == CallType.NRT ? c.NumResourceBlocks : 0);
 
             double totalCapacity = availableChannels * Buffer1Size;
 
@@ -326,8 +339,9 @@ namespace DualBuffer.Services
         // Calculate packet loss rate
         public double CalculatePacketLossRate()
         {
-            int blockedRTCalls = buffer1.Count(c => c.Type == CallType.RT && c.IsBlocked);
-            int blockedNRTCalls = buffer2.Count(c => c.Type == CallType.NRT && c.IsBlocked);
+            var calls = _networkRepository.GetAllAsync();
+            int blockedRTCalls = calls.Count(c => c.Type == CallType.RT && c.IsBlocked);
+            int blockedNRTCalls = calls.Count(c => c.Type == CallType.NRT && c.IsBlocked);
 
             int totalCalls = buffer1.Count + buffer2.Count;
 
@@ -344,7 +358,8 @@ namespace DualBuffer.Services
         // Calculate system utilization
         public double CalculateSystemUtilization()
         {
-            int occupiedChannels = buffer1.Sum(c => c.NumResourceBlocks) + buffer2.Sum(c => c.NumResourceBlocks);
+            var calls = _networkRepository.GetAllAsync();
+            int occupiedChannels = calls.Sum(c => c.NumResourceBlocks) + calls.Sum(c => c.NumResourceBlocks);
 
             return (double)occupiedChannels / availableChannels;
         }
@@ -364,6 +379,19 @@ namespace DualBuffer.Services
                 return 0;
             }
         }
+
+
+        public List<Call> ListCalls()
+        {
+            return _networkRepository.GetAllAsync();
+        }
+
+        public void DeleteCall(int id)
+        {
+           _networkRepository.DeleteAsync(id);
+        }
+
+       
     }
 
 }

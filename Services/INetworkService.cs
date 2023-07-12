@@ -19,5 +19,23 @@ namespace DualBuffer.Services
 
         public Call AddCall(Call call);
 
+        public List<Call> ListCalls();
+
+        public double CalculateAverageWaitingTime();
+
+        public double CalculateSystemUtilization();
+
+        public double CalculatePacketLossRate();
+
+        public double CalculateThroughput();
+
+        public double CalculateFairnessIndex();
+
+        public double CalculateRTBlockingProbability();
+
+        public double CalculateNRTBlockingProbability();
+
+        public void DeleteCall(int id);
+
     }
 }

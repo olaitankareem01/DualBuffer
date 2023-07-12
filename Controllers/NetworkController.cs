@@ -19,9 +19,10 @@ namespace DualBuffer.Controllers
         }
 
         // GET: NetworkController
-        public ActionResult Index()
+        public  ActionResult Index()
         {
-            return View();
+            List<Call> calls =  _networkService.ListCalls();
+            return View(calls);
         }
 
         // GET: NetworkController/Details/5
@@ -61,40 +62,80 @@ namespace DualBuffer.Controllers
         [HttpPost]
         public IActionResult MakeCall(MakeCallViewModel model)
         {
+            Call incomingCall;
+ 
             var isRequestAccepted = _networkService.AcceptRequest(model.Di, model.SNR,model.WRB,model.N, model.Nco);
+            if (isRequestAccepted)
+            {
+                incomingCall = new Call(model.callType);
 
-            Call incomingCall = new Call(model.callType);
 
-             TimeSpan waitingTime = TimeSpan.FromSeconds(30);
-            _networkService.AcceptRequestIntoBuffer(incomingCall, waitingTime);
+                incomingCall.NumResourceBlocks = model.Nco;
+                incomingCall.signalToNoiseRatio = model.SNR;
+                incomingCall.callDuration = model.Di;
+                incomingCall.Type = model.callType;
+                incomingCall.requiredBandwidth = model.WRB;
+                incomingCall.Status = CallStatus.Completed;
+                incomingCall.totalChannels = model.N;
+                incomingCall.allocatedChannels = model.Nco;
+                incomingCall.WaitingTime = 0;
 
-            List<Call> rtCalls = _networkService.GetRTCalls();
-            List<Call> nrtCalls = _networkService.GetNRTCalls();
+            }
+            else
+            {
+                 incomingCall = new Call(model.callType);
 
-            int numChannels = 10; // Number of available channels
+                TimeSpan waitingTime = TimeSpan.FromSeconds(30);
+                var accepted = _networkService.AcceptRequestIntoBuffer(incomingCall, waitingTime);
 
-             _networkService.AllocateResourcesToCalls(rtCalls, nrtCalls, numChannels);
+                List<Call> rtCalls = _networkService.GetRTCalls();
+                List<Call> nrtCalls = _networkService.GetNRTCalls();
 
-            incomingCall.NumResourceBlocks = model.Nco;
-            incomingCall.signalToNoiseRatio = model.SNR;
-            incomingCall.callDuration = model.Di;
-            incomingCall.Type = model.callType;
-            incomingCall.requiredBandwidth = model.WRB;
-            incomingCall.Status = CallStatus.Active;
-            incomingCall.totalChannels = model.N;
-            incomingCall.allocatedChannels = model.Nco;
+                int numChannels = 7; // Number of available channels
+
+                _networkService.AllocateResourcesToCalls(rtCalls, nrtCalls, numChannels);
+
+                incomingCall.NumResourceBlocks = model.Nco;
+                incomingCall.signalToNoiseRatio = model.SNR;
+                incomingCall.callDuration = model.Di;
+                incomingCall.Type = model.callType;
+                incomingCall.requiredBandwidth = model.WRB;
+                incomingCall.Status = (accepted == true)? CallStatus.Completed:CallStatus.Failed;
+                incomingCall.totalChannels = model.N;
+                incomingCall.allocatedChannels = model.Nco;
+            }
 
             var response = _networkService.AddCall(incomingCall);
             if (response != null)
-            {
+            { 
                 TempData["Successful"] = "Created Successful";
 
-                return RedirectToAction("List");
+                return RedirectToAction("Index","Home");
             }
             return View();
         }
 
+        [HttpPost]
+        public ActionResult CalculateMetrics()
+        {
+            var fairnessIndex = _networkService.CalculateFairnessIndex();
+            var throughPut = _networkService.CalculateThroughput();
+            var avgWaitingTime = _networkService.CalculateAverageWaitingTime();
+            var systemUtil = _networkService.CalculateSystemUtilization();
+            var packetLossRate =  _networkService.CalculatePacketLossRate();
+            var rtProb = _networkService.CalculateRTBlockingProbability();
+            var nrtProb = _networkService.CalculateNRTBlockingProbability();
 
+            ViewBag.FairnessIndex = fairnessIndex;
+            ViewBag.Throughput = throughPut;
+            ViewBag.WaitingTime = avgWaitingTime;
+            ViewBag.SystemUtilization = systemUtil;
+            ViewBag.PacketLossRate = packetLossRate;
+            ViewBag.RTProb = rtProb;
+            ViewBag.NRTProb = nrtProb;
+
+            return View("~/Views/Home/Index.cshtml", _networkService.ListCalls());
+        }
 
 
         // GET: NetworkController/Edit/5
@@ -121,7 +162,8 @@ namespace DualBuffer.Controllers
         // GET: NetworkController/Delete/5
         public ActionResult Delete(int id)
         {
-            return View();
+            _networkService.DeleteCall(id);
+            return View("~/Views/Home/Index.cshtml", _networkService.ListCalls());
         }
 
         // POST: NetworkController/Delete/5
